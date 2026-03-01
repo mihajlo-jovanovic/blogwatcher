@@ -3,6 +3,7 @@ package rss
 import (
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -13,6 +14,10 @@ import (
 
 	"github.com/Hyaxia/blogwatcher/internal/safeclient"
 )
+
+// MaxBodySize caps the amount of data we read from an RSS feed or discovery page
+// to 10MB to prevent memory exhaustion (DoS) when encountering infinite/huge bodies.
+const MaxBodySize = 10 * 1024 * 1024
 
 type FeedArticle struct {
 	Title         string
@@ -39,7 +44,8 @@ func ParseFeed(feedURL string, timeout time.Duration) ([]FeedArticle, error) {
 	}
 
 	parser := gofeed.NewParser()
-	feed, err := parser.Parse(response.Body)
+	limitedBody := io.LimitReader(response.Body, MaxBodySize)
+	feed, err := parser.Parse(limitedBody)
 	if err != nil {
 		return nil, FeedParseError{Message: fmt.Sprintf("failed to parse feed: %v", err)}
 	}
@@ -76,7 +82,8 @@ func DiscoverFeedURL(blogURL string, timeout time.Duration) (string, error) {
 		return "", nil
 	}
 
-	doc, err := goquery.NewDocumentFromReader(response.Body)
+	limitedBody := io.LimitReader(response.Body, MaxBodySize)
+	doc, err := goquery.NewDocumentFromReader(limitedBody)
 	if err != nil {
 		return "", nil
 	}
@@ -140,7 +147,8 @@ func isValidFeed(feedURL string, timeout time.Duration) (bool, error) {
 	}
 
 	parser := gofeed.NewParser()
-	feed, err := parser.Parse(response.Body)
+	limitedBody := io.LimitReader(response.Body, MaxBodySize)
+	feed, err := parser.Parse(limitedBody)
 	if err != nil {
 		return false, err
 	}

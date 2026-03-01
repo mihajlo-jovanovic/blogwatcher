@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -69,5 +70,28 @@ func TestDiscoverFeedURL(t *testing.T) {
 	}
 	if feedURL == "" {
 		t.Fatalf("expected feed url")
+	}
+}
+
+func TestParseFeed_CappedMemoryOnHugePayload(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`<?xml version="1.0" encoding="UTF-8" ?><rss version="2.0"><channel><title>Example Feed</title>`))
+		chunk := []byte(strings.Repeat("<item><title>Item</title><link>https://example.com/</link></item>", 1000))
+		for i := 0; i < 20000; i++ { // Would be ~1GB+ if unbound
+			if _, err := w.Write(chunk); err != nil {
+				break
+			}
+		}
+	}))
+	defer server.Close()
+
+	// Ensure this completes quickly and doesn't run out of memory.
+	articles, err := ParseFeed(server.URL, 2*time.Second)
+
+	// Since we cleanly truncated mid-XML tag, the feed parser will error out
+	// because it's invalid XML. This is the desired behavior for a maliciously huge feed.
+	if err == nil {
+		t.Fatalf("expected error due to truncated XML, but parsing succeeded with %d articles", len(articles))
 	}
 }

@@ -3,6 +3,7 @@ package scraper
 import (
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"strings"
 	"time"
@@ -11,6 +12,10 @@ import (
 
 	"github.com/Hyaxia/blogwatcher/internal/safeclient"
 )
+
+// MaxBodySize caps the amount of data we read from a scraped blog page to 5MB
+// to prevent memory exhaustion (DoS) when encountering infinite/huge bodies.
+const MaxBodySize = 5 * 1024 * 1024
 
 type ScrapedArticle struct {
 	Title         string
@@ -41,7 +46,8 @@ func ScrapeBlog(blogURL string, selector string, timeout time.Duration) ([]Scrap
 		return nil, ScrapeError{Message: "invalid blog url"}
 	}
 
-	doc, err := goquery.NewDocumentFromReader(response.Body)
+	limitedBody := io.LimitReader(response.Body, MaxBodySize)
+	doc, err := goquery.NewDocumentFromReader(limitedBody)
 	if err != nil {
 		return nil, ScrapeError{Message: fmt.Sprintf("failed to parse page: %v", err)}
 	}
